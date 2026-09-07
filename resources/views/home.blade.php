@@ -61,7 +61,7 @@
     <section class="content-header">
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:space-between;">
             <div>
-                <h1 style="margin:0;">Charts</h1>
+                <h1 style="margin:0; color:#FF6384;">Charts</h1>
                 <small id="daterange-label" style="color:#000; font-size:13px; display:block; margin-top: 20px;">Showing: <?php echo date('M j, Y', strtotime($firstDayofYear)); ?> &ndash; <?php echo date('M j, Y', strtotime($thisDay)); ?></small>
             </div>
             <div class="input-group" style="width:auto; flex:1; max-width:480px;">
