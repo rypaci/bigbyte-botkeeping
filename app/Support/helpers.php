@@ -107,3 +107,29 @@ function custom_form_select( $name, $value = '', $attr = [], $options = [], $dat
     return $html;
 }
 
+/**
+ * Whether the pos_expense_items table exists in the current database.
+ *
+ * The POS-expenses-by-product feature joins that table from the dashboard, but
+ * nothing in this project's pipeline runs migrations - the deploy has no
+ * migrate step and the host has shell access disabled - so the table can be
+ * absent in an environment whose code already expects it. Without this guard
+ * that combination is a fatal "Base table or view not found" on every
+ * dashboard load. Callers fall back to the behaviour from before the feature
+ * instead, and pick the joined behaviour up automatically once the table is
+ * created. One query per request, then cached.
+ */
+function pos_expense_items_table_exists() {
+    static $exists = null;
+
+    if ($exists === null) {
+        try {
+            $exists = Schema::hasTable('pos_expense_items');
+        }
+        catch (\Exception $e) {
+            $exists = false;
+        }
+    }
+
+    return $exists;
+}

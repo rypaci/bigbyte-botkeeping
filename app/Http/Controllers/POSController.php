@@ -38,11 +38,12 @@ class POSController extends Controller
 
     // Builds the product dropdown options used by the sales dashboard filters, sourced from products that have expense items
     private function productFilterOptions(){
-        $products = Product::select('products.id', 'products.name', 'products.sr_priority')
-            ->join('pos_expense_items', 'pos_expense_items.product_id', '=', 'products.id')
-            ->groupBy('products.id', 'products.name', 'products.sr_priority')
-            ->orderBy('products.name')
-            ->get();
+        $query = Product::select('products.id', 'products.name', 'products.sr_priority');
+        if (pos_expense_items_table_exists()) {
+            $query->join('pos_expense_items', 'pos_expense_items.product_id', '=', 'products.id')
+                ->groupBy('products.id', 'products.name', 'products.sr_priority');
+        }
+        $products = $query->orderBy('products.name')->get();
         $options = ['' => 'All Products'];
         foreach($products as $product){
             $options[$product->id] = empty($product->sr_priority) ? $product->name : $product->name.' - '.$product->sr_priority;
@@ -55,6 +56,9 @@ class POSController extends Controller
         $date = Carbon::parse($request->ShootDateTime)->timezone('Asia/Manila');
         $date_today = $date->format('Y-m-d');
         $productId = $request->product_id;
+        // Expenses can only be attributed to a product through pos_expense_items;
+        // without that table the filter has nothing to join to. See helpers.php.
+        $filterExpensesByProduct = $productId && pos_expense_items_table_exists();
         $products = $this->productFilterOptions();
 
         $query = DB::table('p_o_s_sales as pos_s');
@@ -67,13 +71,13 @@ class POSController extends Controller
         ->sum($productId ? 'poss.amount' : 'pos_s.amount_due');
 
         $expensesQuery = DB::table('p_o_s_expenses as exp');
-        if ($productId) {
+        if ($filterExpensesByProduct) {
             $expensesQuery->join('pos_expense_items as pei', 'exp.id', '=', 'pei.pos_expense_id')
                 ->where('pei.product_id', $productId);
         }
         $amount_expenses_today = $expensesQuery
         ->where('exp.date', $date_today)
-        ->sum($productId ? 'pei.total_price' : 'exp.amount');
+        ->sum($filterExpensesByProduct ? 'pei.total_price' : 'exp.amount');
 
         $currentMonth = date('m');
         $over_all_sales = DB::table('p_o_s_sales')
@@ -113,13 +117,13 @@ class POSController extends Controller
         // dd($over_all_sales);
 
         $over_all_no_OR_expensesQuery = DB::table('p_o_s_expenses as exp');
-        if ($productId) {
+        if ($filterExpensesByProduct) {
             $over_all_no_OR_expensesQuery->join('pos_expense_items as pei', 'exp.id', '=', 'pei.pos_expense_id')
                 ->where('pei.product_id', $productId);
         }
         $over_all_no_OR_expenses = $over_all_no_OR_expensesQuery
         ->whereRaw('MONTH(exp.date) = ?',[$currentMonth])
-        ->sum($productId ? 'pei.total_price' : 'exp.amount');
+        ->sum($filterExpensesByProduct ? 'pei.total_price' : 'exp.amount');
 
         // Sales Transaction Summary
         $trans_today = POS_sales::where('sales_date', $date_today)->sum('amount_due');
@@ -746,17 +750,20 @@ class POSController extends Controller
         $startDate = date('Y-m-d', strtotime($arrayDate[0]));
         $endDate = date('Y-m-d', strtotime($arrayDate[1]));
         $productId = $request->product_id;
+        // Expenses can only be attributed to a product through pos_expense_items;
+        // without that table the filter has nothing to join to. See helpers.php.
+        $filterExpensesByProduct = $productId && pos_expense_items_table_exists();
         $products = $this->productFilterOptions();
 
         $expensesQuery = DB::table('p_o_s_expenses as exp');
-        if ($productId) {
+        if ($filterExpensesByProduct) {
             $expensesQuery->join('pos_expense_items as pei', 'exp.id', '=', 'pei.pos_expense_id')
                 ->where('pei.product_id', $productId);
         }
         $amount_expenses_today = $expensesQuery
         ->whereDate('exp.date', '>=', $startDate)
         ->whereDate('exp.date', '<=', $endDate)
-        ->sum($productId ? 'pei.total_price' : 'exp.amount');
+        ->sum($filterExpensesByProduct ? 'pei.total_price' : 'exp.amount');
 
         $query = DB::table('p_o_s_sales as pos_s');
         if ($productId) {
@@ -779,14 +786,14 @@ class POSController extends Controller
         ->sum($productId ? 'poss.amount' : 'pos_s.amount_due');
 
         $over_all_no_OR_expensesQuery = DB::table('p_o_s_expenses as exp');
-        if ($productId) {
+        if ($filterExpensesByProduct) {
             $over_all_no_OR_expensesQuery->join('pos_expense_items as pei', 'exp.id', '=', 'pei.pos_expense_id')
                 ->where('pei.product_id', $productId);
         }
         $over_all_no_OR_expenses = $over_all_no_OR_expensesQuery
         ->whereDate('exp.date', '>=', $startDate)
         ->whereDate('exp.date', '<=', $endDate)
-        ->sum($productId ? 'pei.total_price' : 'exp.amount');
+        ->sum($filterExpensesByProduct ? 'pei.total_price' : 'exp.amount');
 
         $ca_expenses = DB::table('chart_accounts as ca')
         ->join('vouchers as v', 'ca.id','=','v.chart_account_id')

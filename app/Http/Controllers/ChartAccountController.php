@@ -790,6 +790,9 @@ class ChartAccountController extends Controller
         $fromDateNum = date('n', strtotime($fromDate));
         $toDateNum = date('n', strtotime($toDate));
         $productId = $request->product_id;
+        // Expenses can only be attributed to a product through pos_expense_items;
+        // without that table the filter has nothing to join to. See helpers.php.
+        $filterExpensesByProduct = $productId && pos_expense_items_table_exists();
 
         $posSalesQuery = DB::table('p_o_s_sales as pos_s');
         if ($productId) {
@@ -833,13 +836,13 @@ class ChartAccountController extends Controller
                 ->get();
 
         $posExpensesQuery = DB::table('p_o_s_expenses as exp');
-        if ($productId) {
+        if ($filterExpensesByProduct) {
             $posExpensesQuery->join('pos_expense_items as pei', 'exp.id', '=', 'pei.pos_expense_id')
                 ->where('pei.product_id', $productId);
         }
         $posExpenses = $posExpensesQuery
                 ->select(DB::raw('DATE_FORMAT(exp.date, "%b") as month'),
-                        DB::raw('IFNULL(SUM('.($productId ? 'pei.total_price' : 'exp.amount').'), 0) as expenses'))
+                        DB::raw('IFNULL(SUM('.($filterExpensesByProduct ? 'pei.total_price' : 'exp.amount').'), 0) as expenses'))
                 ->whereBetween('exp.date', [$fromDate, $toDate])
                 ->orderBy('exp.date', 'asc')
                 ->groupBy(DB::raw('DATE_FORMAT(exp.date, "%b")'))
