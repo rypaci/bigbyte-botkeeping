@@ -1,0 +1,139 @@
+name: Deploy
+
+# Deploys are manual. This used to run on every push to main, which meant a
+# merge went straight to the live site with no gate - on 2026-07-20 that took
+# staging down with an HTTP 500. Run it from Actions > Deploy > Run workflow
+# once you've confirmed main is ready.
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Remove files that should not be deployed
+        # The SFTP action has no 'exclude' input, so we prune here instead.
+        # storage/ and tests/ are kept on the server; .git/.github are CI-only.
+        run: |
+          rm -rf .git .github storage tests
+          # Belt and braces: these were removed from the repo, but if anyone
+          # re-adds a dump, a phpinfo or the composer binary, don't ship it.
+          rm -f ./*.sql phpinfo.php composer.phar
+          echo "--- what will be uploaded ---"
+          ls -a
+
+      - name: Deploy via SFTP (code only, no dependencies)
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          username: ${{ secrets.FTP_USERNAME }}
+          server: ${{ secrets.FTP_SERVER }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 22
+          local_path: "./*"
+          remote_path: "/home/bigbyte/public_html/botkeeping"
+          sftp_only: true
+          args: "-o ConnectTimeout=5"
+
+      - name: Install dependencies, patch for PHP 8, clear caches
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 22
+          command_timeout: 15m
+          script: |
+            # `set -e` is what makes a failing command fail the run. This action
+            # has no script_stop input, and without this line the script runs on
+            # after an error and exits with the status of its *last* command -
+            # which is how the composer install failure previously went out green.
+            set -euo pipefail
+            cd /home/bigbyte/public_html/botkeeping
+
+            # `php` on this box is the CLI build (8.2.32), but LiteSpeed serves
+            # requests with ea-php80 (8.0.30) per .htaccess. Checking the app
+            # under the CLI validates a runtime that never handles a request -
+            # that is how a deploy passed its boot check while the site 500'd.
+            PHP_BIN=/opt/cpanel/ea-php80/root/usr/bin/php
+            [ -x "$PHP_BIN" ] || PHP_BIN=php
+            echo "web php: $("$PHP_BIN" -r 'echo PHP_VERSION;')  cli php: $(php -r 'echo PHP_VERSION;')"
+
+            # vendor/ is no longer committed, so it is built here. Snapshot the
+            # working copy first: a composer install that dies part-way would
+            # otherwise leave the site with a half-written vendor/ and no way back.
+            rm -rf vendor.bak
+            if [ -d vendor ]; then cp -a vendor vendor.bak; fi
+            restore_vendor() {
+              if [ -d vendor.bak ]; then
+                echo "::error::deploy failed - restoring previous vendor/"
+                rm -rf vendor && mv vendor.bak vendor
+              fi
+            }
+            trap restore_vendor ERR
+
+            "$PHP_BIN" $(command -v composer) install --no-dev --optimize-autoloader --no-interaction
+
+            # composer install rewrites vendor/, which undoes the shim. Laravel
+            # 5.2's HandleExceptions turns every PHP 8 deprecation into a thrown
+            # ErrorException, so without this the framework cannot boot and every
+            # request is an HTTP 500. --check fails the deploy if it did not take.
+            "$PHP_BIN" php8-compat-patch.php
+            "$PHP_BIN" php8-compat-patch.php --check
+
+            # Clear caches by deleting the files directly. We cannot use
+            # `php artisan *:clear` here: a stale bootstrap/cache/config.php makes
+            # every artisan command crash with "Class log does not exist" before it
+            # can run. Removing the files works regardless of app boot state.
+            rm -f bootstrap/cache/*.php
+            find storage/framework/views -type f -name "*.php" -delete
+
+            # No recursive chmod. The previous `find . -type d -exec chmod 755`
+            # rewrote permissions across storage/ and bootstrap/cache/ on every
+            # deploy; the app user already owns these paths.
+
+            # Prove the framework actually boots before calling this a success.
+            "$PHP_BIN" artisan --version
+
+            # Verify a real HTTP request from the server itself, while the trap
+            # is still armed. The runner-side check further down runs too late:
+            # a failure there cannot roll the server back, which is how a bad
+            # deploy previously left the site 500-ing.
+            CODE=$(curl -s -o /tmp/deploy-check.html -w '%{http_code}' --max-time 25 \
+              https://botkeeping.bigbyteaquaventures.com/ || echo 000)
+            echo "post-deploy GET / -> HTTP $CODE"
+
+            case "$CODE" in
+              2*|3*) ;;
+              *)
+                echo "===== response body ====="
+                sed -e 's/<[^>]*>//g' /tmp/deploy-check.html | grep -viE '^\s*$' | head -30
+                echo "===== laravel log ====="
+                tail -n 40 storage/logs/laravel.log 2>/dev/null | cut -c1-400 || echo "(none)"
+                echo "===== front controller under CLI ====="
+                "$PHP_BIN" -d display_errors=1 public/index.php 2>&1 \
+                  | grep -viE 'Deprecated:|^\s*$|^<' | head -20
+                false   # trips the ERR trap, restoring the previous vendor/
+                ;;
+            esac
+
+            # Past this point the deploy is good; drop the rollback copy.
+            trap - ERR
+            rm -rf vendor.bak
+
+      - name: Verify the site responds
+        run: |
+          for i in 1 2 3; do
+            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+              https://botkeeping.bigbyteaquaventures.com/ || echo 000)
+            echo "attempt $i: HTTP $CODE"
+            case "$CODE" in
+              2*|3*) echo "Site is up (HTTP $CODE)"; exit 0 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::Site did not return a successful status after deploy (last: HTTP $CODE)"
+          exit 1

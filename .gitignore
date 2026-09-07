@@ -1,0 +1,42 @@
+# Local environment. Never commit real credentials - the deploy uploads the
+# repo root to the server, so anything here ends up on the host.
+.env
+
+# Dependencies are built by composer, not committed. Run `composer install`
+# followed by `php php8-compat-patch.php` - see README "Dependencies".
+/vendor
+
+# Front-end build (legacy Laravel Elixir / Gulp)
+/node_modules
+
+# Laravel runtime artifacts
+/bootstrap/cache/*.php
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*.php
+/storage/logs/*.log
+
+# Database dumps. The 2017-era quicktax-remote-*.sql set was removed from the
+# repo and archived outside it - don't commit dumps here again, they are data
+# and this is code.
+/quicktax-remote*.sql
+/qt_chart_accounts.sql
+*.sql.gz
+
+# Stray PHP error logs written into the app by the server
+error_log
+
+# Editor / OS cruft
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+
+
+/REPOSITORY_STRUCTURE_REVIEW.md
+/database/seeds
+
+_ide_helper.php
+
+/public/uploads/templates

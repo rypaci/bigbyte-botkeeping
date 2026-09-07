@@ -1,0 +1,119 @@
+name: CI
+
+# Two independent jobs, run in parallel:
+#   build     - proves `composer install` produces a bootable app on a
+#               case-sensitive Linux filesystem with the server's PHP. macOS is
+#               case-insensitive, so a developer machine cannot catch autoload
+#               problems like `app/CashInvoice.php` declaring `class Cashinvoice`.
+#   pr-title  - enforces Conventional Commits on the PR title.
+# Runner-only; neither job touches the server.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # 8.0, not 8.2. The server's CLI is 8.2.32 but LiteSpeed serves requests
+      # with ea-php80 (8.0.30), and the web version is the one that matters.
+      - name: Set up PHP 8.0 (matches the server's WEB sapi)
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          extensions: mbstring, pdo, pdo_mysql, gd, zip
+
+      - name: composer install
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      - name: Apply PHP 8 shim
+        run: |
+          php php8-compat-patch.php
+          php php8-compat-patch.php --check
+
+      - name: Framework boots
+        run: php artisan --version
+
+      - name: Serve a real request and report the actual error
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+          sed -i 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/; s|^DB_DATABASE=.*|DB_DATABASE=/dev/null|; s/^SESSION_DRIVER=.*/SESSION_DRIVER=array/; s/^CACHE_DRIVER=.*/CACHE_DRIVER=array/; s/^APP_DEBUG=.*/APP_DEBUG=true/' .env
+
+          php -S 127.0.0.1:8000 -t public server.php > server.log 2>&1 &
+          sleep 5
+
+          CODE=$(curl -s -o body.html -w '%{http_code}' http://127.0.0.1:8000/ || echo 000)
+          echo "GET / -> HTTP $CODE"
+
+          if [ "$CODE" != "200" ] && [ "$CODE" != "302" ]; then
+            echo "===== response body ====="
+            sed -e 's/<[^>]*>//g' body.html | grep -viE '^\s*$' | head -40
+            echo "===== server log ====="
+            tail -40 server.log
+            echo "===== laravel log ====="
+            tail -60 storage/logs/laravel.log 2>/dev/null || echo "(none)"
+            exit 1
+          fi
+          echo "OK - app serves on Linux/PHP 8.0 from a composer-built vendor"
+
+      - name: Autoload compliance (informational)
+        if: always()
+        run: |
+          echo "Classes composer had to skip - these resolve on macOS but not Linux:"
+          composer dump-autoload --optimize --no-interaction 2>&1 | grep -i "does not comply" || echo "  (none)"
+
+  pr-title:
+    # PRs are squash-merged and the repo uses the PR title as the commit message
+    # on main, so the title IS the commit. See README "Commit messages".
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          echo "PR title: $TITLE"
+
+          PATTERN='^(feat|fix|chore|style|docs|refactor|test|ci)(\([a-z0-9 _-]+\))?!?: .+'
+
+          if ! printf '%s' "$TITLE" | grep -qE "$PATTERN"; then
+            echo "::error::PR title must start with a Conventional Commits type prefix."
+            cat <<'MSG'
+
+          Expected:  <type>: <what changed>
+          Types:     feat, fix, chore, style, docs, refactor, test, ci
+
+          Examples:
+            feat: add cash invoice PDF export
+            fix: stop payroll list crashing on empty DTR
+            chore: bump intervention/image to 2.7.2
+
+          See README > Git workflow > Commit messages.
+          MSG
+            exit 1
+          fi
+
+          SUMMARY=${TITLE#*: }
+          if [ ${#TITLE} -gt 72 ]; then
+            echo "::warning::Title is ${#TITLE} characters; aim for under ~72."
+          fi
+
+          # "fix: Added the thing" - past tense and capitalised are the two most
+          # common slips; warn rather than block so it stays a nudge.
+          case "$SUMMARY" in
+            [A-Z]*) echo "::warning::Summary should be lowercase: '$SUMMARY'" ;;
+          esac
+          case "$SUMMARY" in
+            [Aa]dded\ *|[Ff]ixed\ *|[Uu]pdated\ *|[Rr]emoved\ *|[Cc]hanged\ *)
+              echo "::warning::Use imperative mood - 'add', not 'added': '$SUMMARY'" ;;
+          esac
+
+          echo "OK"
