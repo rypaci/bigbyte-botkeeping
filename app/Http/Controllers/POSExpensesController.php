@@ -7,6 +7,8 @@ use App\Http\Requests;
 use App\Vendor;
 use App\SupplierInvoice;
 use App\POSExpenses;
+use App\POSExpenseItem;
+use App\Product;
 use Carbon\Carbon;
 use DateTime;
 use DB;
@@ -37,7 +39,27 @@ class POSExpensesController extends Controller
             'date' => 'required',
             'remarks' => ''
         ]);
-        POSExpenses::create($request->all());
+
+        // Create the expense
+        $expense = POSExpenses::create($request->all());
+
+        // Save associated products if provided
+        if ($request->has('products_json')) {
+            $products = json_decode($request->input('products_json'), true);
+            
+            if (is_array($products) && !empty($products)) {
+                foreach ($products as $product) {
+                    POSExpenseItem::create([
+                        'pos_expense_id' => $expense->id,
+                        'product_id' => $product['product_id'],
+                        'quantity' => $product['quantity'],
+                        'cost_price' => $product['cost_price'],
+                        'total_price' => $product['total_price'],
+                        'remarks' => $product['remarks'] ?? null
+                    ]);
+                }
+            }
+        }
 
         return redirect()->route('pos-expenses.create')
                         ->with('success','Expenses has been successfully added');
@@ -89,7 +111,7 @@ class POSExpensesController extends Controller
             $vendor = Vendor::select('*', DB::raw("TRIM(IF(individual, CONCAT(first_name, ' ', middle_name, ' ', last_name), company_name)) as name"))
                 ->find($request->vendor_id);
             
-            return $vendor? $vendor: [];
+            return $vendor? $this->formatVendorResponse($vendor): [];
         }
         
         $s = $request->s;
@@ -107,14 +129,25 @@ class POSExpensesController extends Controller
                 ->where('company_name', 'LIKE', "%$s%")
                 ->first();
         }
-        return $vendor? $vendor: [];
+        return $vendor? $this->formatVendorResponse($vendor): [];
+    }
+
+    /**
+     * Map DB column names to the keys the Vendor Info table expects (e.g. phone_number -> phone).
+     */
+    private function formatVendorResponse($vendor)
+    {
+        $data = $vendor->toArray();
+        $data['phone'] = $data['phone_number'] ?? '';
+
+        return $data;
     }
 
     function findVendors(Request $request)
     {
-        $s = $request->term;
+        $s = $request->term ?? $request->s;
         
-        if(!$s) return [];
+        if(!$s) return response()->json([]);
         
         $vendors = Vendor::select('*', DB::raw("TRIM(IF(individual, CONCAT(first_name, ' ', middle_name, ' ', last_name), company_name)) as name"))
             ->where(function($query) use ($s){
@@ -123,16 +156,50 @@ class POSExpensesController extends Controller
                     ->orWhere('last_name', 'LIKE', "$s%");
             })
             ->orWhere('company_name', 'LIKE', "$s%")
+            ->limit(10)
             ->get();
         
-        if(!$vendors) return [];
+        if(!$vendors || $vendors->isEmpty()) return response()->json([]);
         
         $response = [];
         foreach($vendors as $v){
-            $response[] = [ 'id' => $v->id, 'label' => $v->name, 'value' => $v->name ];
+            $response[] = [ 
+                'id' => $v->id, 
+                'label' => $v->name, 
+                'value' => $v->name 
+            ];
         }
         
-        return $response;
+        return response()->json($response);
+    }
+
+    /**
+     * Find products for autocomplete
+     */
+    public function findProducts(Request $request)
+    {
+        $term = $request->term ?? $request->s;
+        
+        if(!$term) return response()->json([]);
+        
+        $products = Product::where('name', 'LIKE', "%$term%")
+            ->select('id', 'name', 'cost_price')
+            ->limit(10)
+            ->get();
+        
+        if(!$products || $products->isEmpty()) return response()->json([]);
+        
+        $response = [];
+        foreach($products as $p){
+            $response[] = [ 
+                'id' => $p->id, 
+                'label' => $p->name, 
+                'value' => $p->name,
+                'cost_price' => $p->cost_price
+            ];
+        }
+        
+        return response()->json($response);
     }
 
     public function trackExpenses(Request $request){

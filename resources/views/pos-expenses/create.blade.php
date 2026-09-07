@@ -23,6 +23,44 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
 
 .input-group.terms, .input-group.description { margin-top: 20px; }
 .terms-ch { margin-left: 15px; display: none; }
+
+/* Products table styling */
+#products-table { font-size: 12px; }
+#products-table tbody tr td { padding: 8px; vertical-align: middle; }
+#products-table input[type="text"], #products-table input[type="number"] { 
+    width: 100%; 
+    padding: 5px; 
+    font-size: 12px;
+}
+#products-table .btn-remove-row {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+#products-table .remove-product-row:hover { 
+    cursor: pointer; 
+    background-color: #f5f5f5;
+}
+.total-cost,.total-amount{
+  text-align: right;
+}
+#total-amount{
+  border: 1px solid #d2d6de;
+  width: 100%;
+  padding: 5px;
+  font-size: 14px;
+  display: block;
+}
+.total-cost .row-total{
+  border: 1px solid #d2d6de;
+  width: 100%;
+  padding: 5px;
+  font-size: 14px;
+  display: block;
+}
+#products-table thead th{
+  background-color: #00c0ef;
+  color: #fff;
+}
 </style>
 @endsection
 
@@ -158,6 +196,59 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
         <!-- ./box-body -->
     </div>
 
+    <!-- Products Section -->
+    <div class="box box-info">
+        <div class="box-header with-border">
+            <h3 class="box-title">Products / Items</h3>
+        </div>
+        <div class="box-body">
+            <div class="row">
+                <div class="col-sm-12">
+                    <div class="form-group">
+                        <label>Add Product</label>
+                        <div class="input-group input-group-sm">
+                            <input type="hidden" id="product_id" name="product_id">
+                            <input type="text" id="product_search" class="form-control" placeholder="Search product by name...">
+                            <span class="input-group-btn">
+                                <button type="button" class="btn btn-info btn-flat" id="btn-add-product">Add Product</button>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Products Table -->
+            <div class="row" style="margin-top: 20px;">
+                <div class="col-sm-12">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped" id="products-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 30%">Product Name</th>
+                                    <th style="width: 15%">Cost Price</th>
+                                    <th style="width: 15%">Quantity</th>
+                                    <th style="width: 15%">Total</th>
+                                    <th style="width: 15%">Remarks</th>
+                                    <th style="width: 10%">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="products-tbody">
+                                <!-- Products will be added here -->
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <th colspan="3" style="text-align: right; font-size: 16px;">Total Amount:</th>
+                                    <th class="total-amount"><span id="total-amount">0.00</span></th>
+                                    <th colspan="2"></th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-sm-3">
             <div class="form-group">
@@ -182,6 +273,8 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
 
 @section('footer_script')
 <script>
+    var productsData = {}; // Store product details by ID
+
     $('.datepicker').datepicker({
         autoclose: true,
         todayBtn: "linked",
@@ -203,9 +296,39 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
     });
     $('[name=terms]').trigger('change');
     
+    // Vendor autocomplete search
+    var selectedVendorId = null;
     $('.vendor_name').autocomplete({
-        source: '{{ url("pos-expenses/find-vendors") }}',
-        minLength: 3
+        source: function(request, response) {
+            $.ajax({
+                url: '{{ url("pos-expenses/find-vendors") }}',
+                data: {
+                    term: request.term
+                },
+                success: function(data) {
+                    response(data);
+                },
+                error: function(error) {
+                    console.error('Vendor search error:', error);
+                    response([]);
+                }
+            });
+        },
+        minLength: 2,
+        select: function(event, ui) {
+            $('.vendor_name').val(ui.item.label);
+            selectedVendorId = ui.item.id;
+            // Automatically trigger the search/Go button to load vendor info
+            setTimeout(function() {
+                $('.btn-search').click();
+            }, 100);
+            return false;
+        }
+    });
+
+    // Clear the stale selection whenever the vendor name is typed manually
+    $('.vendor_name').on('input', function(){
+        selectedVendorId = null;
     });
 
     /* Search for a vendor info. */
@@ -213,8 +336,8 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
         var s = ($('.vendor_name').val()).trim();
         var request = { s: s };
         
-        if( s && $('.vendor_name').data('ui-autocomplete') && $('.vendor_name').data('ui-autocomplete').selectedItem ){
-            request.vendor_id = $('.vendor_name').data('ui-autocomplete').selectedItem.id;
+        if( selectedVendorId ){
+            request.vendor_id = selectedVendorId;
         }
         else if( !s ){
             // alert('it\'s empty'); 
@@ -286,6 +409,137 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
     window.onload = function () {
         document.getElementById("invoice_no").value = entry_no; // HERE ;)
     }
+
+    // ===== PRODUCTS SECTION JAVASCRIPT =====
+    
+    // Product autocomplete search
+    $('#product_search').autocomplete({
+        source: function(request, response) {
+            $.ajax({
+                url: '{{ url("pos-expenses/find-products") }}',
+                data: {
+                    term: request.term
+                },
+                success: function(data) {
+                    response(data);
+                },
+                error: function(error) {
+                    console.error('Product search error:', error);
+                    response([]);
+                }
+            });
+        },
+        minLength: 2,
+        select: function(event, ui) {
+            $('#product_id').val(ui.item.id);
+            productsData[ui.item.id] = {
+                name: ui.item.label,
+                cost_price: ui.item.cost_price
+            };
+            return false;
+        }
+    });
+
+    // Add product button click
+    $('#btn-add-product').on('click', function(e) {
+        e.preventDefault();
+        
+        var productId = $('#product_id').val();
+        var productSearch = $('#product_search').val();
+        
+        if (!productId) {
+            alert('Please select a product');
+            return;
+        }
+        
+        // Check if product already exists in table
+        if ($('#products-tbody').find('[data-product-id="' + productId + '"]').length > 0) {
+            alert('This product is already added');
+            return;
+        }
+        
+        var productName = productsData[productId].name;
+        var costPrice = parseFloat(productsData[productId].cost_price) || 0;
+        
+        // Add row to table
+        var rowHTML = '<tr class="remove-product-row" data-product-id="' + productId + '">' +
+            '<td><input type="hidden" name="product_ids[]" value="' + productId + '">' + productName + '</td>' +
+            '<td><input type="text" class="form-control cost-price" value="' + costPrice.toFixed(2) + '" data-product-id="' + productId + '"></td>' +
+            '<td><input type="number" class="form-control quantity" value="1" min="1" data-product-id="' + productId + '"></td>' +
+            '<td class="total-cost"><span class="row-total">' + (costPrice * 1).toFixed(2) + '</span></td>' +
+            '<td><input type="text" class="form-control remarks" name="product_remarks[]" placeholder="Notes..."></td>' +
+            '<td><button type="button" class="btn btn-danger btn-xs btn-remove-row"><i class="fa fa-trash"></i></button></td>' +
+            '</tr>';
+        
+        $('#products-tbody').append(rowHTML);
+        
+        // Reset search
+        $('#product_search').val('');
+        $('#product_id').val('');
+        
+        // Calculate totals
+        updateTotals();
+    });
+
+    // Calculate row total when quantity or price changes
+    $(document).on('change', '.quantity, .cost-price', function() {
+        var $row = $(this).closest('tr');
+        var quantity = parseFloat($row.find('.quantity').val()) || 0;
+        var costPrice = parseFloat($row.find('.cost-price').val()) || 0;
+        var total = quantity * costPrice;
+        $row.find('.row-total').text(total.toFixed(2));
+        updateTotals();
+    });
+
+    // Remove product row
+    $(document).on('click', '.btn-remove-row', function(e) {
+        e.preventDefault();
+        $(this).closest('tr').remove();
+        updateTotals();
+    });
+
+    // Update total amount
+    function updateTotals() {
+        var totalAmount = 0;
+        $('#products-tbody tr').each(function() {
+            var total = parseFloat($(this).find('.row-total').text()) || 0;
+            totalAmount += total;
+        });
+        $('#total-amount').text(totalAmount.toFixed(2));
+    }
+
+    // Form submission - prepare product data
+    $('form').on('submit', function(e) {
+        // Add product details as hidden fields
+        var productsCount = $('#products-tbody tr').length;
+        
+        if (productsCount === 0) {
+            alert('Please add at least one product to the expense');
+            e.preventDefault();
+            return false;
+        }
+        
+        // Create array of product details
+        var productDetails = [];
+        $('#products-tbody tr').each(function(index) {
+            var productId = $(this).data('product-id');
+            var quantity = $(this).find('.quantity').val();
+            var costPrice = $(this).find('.cost-price').val();
+            var totalPrice = $(this).find('.row-total').text();
+            var remarks = $(this).find('.remarks').val();
+            
+            productDetails.push({
+                product_id: productId,
+                quantity: quantity,
+                cost_price: costPrice,
+                total_price: totalPrice,
+                remarks: remarks
+            });
+        });
+        
+        // Add as hidden input
+        $('<input type="hidden" name="products_json">').val(JSON.stringify(productDetails)).appendTo('form');
+    });
 
 </script>
 @endsection

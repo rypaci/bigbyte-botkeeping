@@ -279,6 +279,7 @@ Route::group(['middlewareGroups'=>['web', 'auth']], function() {
 
     Route::get('pos-expenses/find-vendors', 'POSExpensesController@findVendors'); // Ajax purpose only
     Route::get('pos-expenses/find-vendor-only', 'POSExpensesController@findVendorOnly'); // Ajax purpose only
+    Route::get('pos-expenses/find-products', 'POSExpensesController@findProducts'); // Ajax purpose only
     Route::get('pos-expenses/tracks-expenses/{id}', 'POSExpensesController@getRecordDestroy');
     Route::get('pos-expenses/tracks-expenses', 'POSExpensesController@trackExpenses');
     Route::resource('pos-expenses', 'POSExpensesController');

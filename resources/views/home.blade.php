@@ -50,7 +50,12 @@
     $total_taxes    = array_sum($pos_sales->taxes);
 
     $productOptions = ['' => 'All Products'];
-    foreach(App\Product::select('id', 'name', 'sr_priority')->orderBy('name')->get() as $product){
+    $productsWithExpenses = App\Product::select('products.id', 'products.name', 'products.sr_priority')
+        ->join('pos_expense_items', 'pos_expense_items.product_id', '=', 'products.id')
+        ->groupBy('products.id', 'products.name', 'products.sr_priority')
+        ->orderBy('products.name')
+        ->get();
+    foreach($productsWithExpenses as $product){
         $productOptions[$product->id] = empty($product->sr_priority) ? $product->name : $product->name.' - '.$product->sr_priority;
     }
 ?>
