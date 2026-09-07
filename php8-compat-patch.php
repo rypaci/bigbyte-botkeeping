@@ -17,6 +17,19 @@
  *        applied to a query that has no wheres yet -> count(null) is a fatal
  *        TypeError (e.g. any SoftDeletes/scoped model's index). Initialise it to
  *        [] as newer Laravel does.
+ *   4-6. Carbon::setLastErrors() type-hints `array $lastErrors`, but PHP 8's
+ *        DateTime::getLastErrors() returns `false` (not an array) when there
+ *        are no errors, at both call sites (constructor and
+ *        createFromFormat()) -> fatal TypeError on every session read/write
+ *        and any date parsing. Coerce false to [] at both call sites, and
+ *        give the setter itself a safe default.
+ *   7.   helpers.php's str_replace_array() calls preg_replace() once per
+ *        binding without checking the binding's type. If a query ever gets a
+ *        non-scalar binding (e.g. an array from a mis-posted form field),
+ *        QueryException::formatMessage() crashes with a PHP 8 preg_replace()
+ *        TypeError while trying to report the *original* SQL error, masking
+ *        it behind a blank 500. Cast non-scalar replacement values to a
+ *        JSON string so the real error message always surfaces.
  *
  * Usage:  php php8-compat-patch.php  [--check]
  *   --check   report whether all patches are applied; exit 1 if any is missing.
@@ -43,6 +56,26 @@ $patches = [
         'file'    => $fw . '/Database/Query/Builder.php',
         'search'  => "\n    public \$wheres;\n",
         'replace' => "\n    public \$wheres = [];\n",
+    ],
+    [
+        'file'    => $root . '/vendor/nesbot/carbon/src/Carbon/Carbon.php',
+        'search'  => 'static::setLastErrors(parent::getLastErrors());',
+        'replace' => 'static::setLastErrors(parent::getLastErrors() ?: []);',
+    ],
+    [
+        'file'    => $root . '/vendor/nesbot/carbon/src/Carbon/Carbon.php',
+        'search'  => '$lastErrors = parent::getLastErrors();',
+        'replace' => '$lastErrors = parent::getLastErrors() ?: [];',
+    ],
+    [
+        'file'    => $root . '/vendor/nesbot/carbon/src/Carbon/Carbon.php',
+        'search'  => 'private static function setLastErrors(array $lastErrors)',
+        'replace' => 'private static function setLastErrors(array $lastErrors = [])',
+    ],
+    [
+        'file'    => $fw . '/Support/helpers.php',
+        'search'  => "        foreach (\$replace as \$value) {\n            \$subject = preg_replace('/'.\$search.'/', \$value, \$subject, 1);\n        }",
+        'replace' => "        foreach (\$replace as \$value) {\n            if (! is_scalar(\$value) && ! is_null(\$value)) {\n                \$value = json_encode(\$value);\n            }\n            \$subject = preg_replace('/'.\$search.'/', \$value, \$subject, 1);\n        }",
     ],
 ];
 

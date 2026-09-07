@@ -832,12 +832,17 @@ class ChartAccountController extends Controller
                 ->groupBy(DB::raw('DATE_FORMAT(v.date, "%b")'))
                 ->get();
 
-        $posExpenses = DB::table('p_o_s_expenses')
-                ->select(DB::raw('DATE_FORMAT(date, "%b") as month'),
-                        DB::raw('IFNULL(SUM(amount), 0) as expenses'))
-                ->whereBetween('date', [$fromDate, $toDate])
-                ->orderBy('date', 'asc')
-                ->groupBy(DB::raw('DATE_FORMAT(date, "%b")'))
+        $posExpensesQuery = DB::table('p_o_s_expenses as exp');
+        if ($productId) {
+            $posExpensesQuery->join('pos_expense_items as pei', 'exp.id', '=', 'pei.pos_expense_id')
+                ->where('pei.product_id', $productId);
+        }
+        $posExpenses = $posExpensesQuery
+                ->select(DB::raw('DATE_FORMAT(exp.date, "%b") as month'),
+                        DB::raw('IFNULL(SUM('.($productId ? 'pei.total_price' : 'exp.amount').'), 0) as expenses'))
+                ->whereBetween('exp.date', [$fromDate, $toDate])
+                ->orderBy('exp.date', 'asc')
+                ->groupBy(DB::raw('DATE_FORMAT(exp.date, "%b")'))
                 ->get();
 
         $wrmExpenses = DB::table('w_r_m_expenses')
