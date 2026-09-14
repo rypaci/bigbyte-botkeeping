@@ -436,31 +436,27 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
                 name: ui.item.label,
                 cost_price: ui.item.cost_price
             };
+            // Auto-add the product as soon as it's picked from the suggestions
+            addProductRow(ui.item.id);
             return false;
         }
     });
 
-    // Add product button click
-    $('#btn-add-product').on('click', function(e) {
-        e.preventDefault();
-        
-        var productId = $('#product_id').val();
-        var productSearch = $('#product_search').val();
-        
+    function addProductRow(productId) {
         if (!productId) {
             alert('Please select a product');
             return;
         }
-        
+
         // Check if product already exists in table
         if ($('#products-tbody').find('[data-product-id="' + productId + '"]').length > 0) {
             alert('This product is already added');
             return;
         }
-        
+
         var productName = productsData[productId].name;
         var costPrice = parseFloat(productsData[productId].cost_price) || 0;
-        
+
         // Add row to table
         var rowHTML = '<tr class="remove-product-row" data-product-id="' + productId + '">' +
             '<td><input type="hidden" name="product_ids[]" value="' + productId + '">' + productName + '</td>' +
@@ -470,15 +466,21 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
             '<td><input type="text" class="form-control remarks" name="product_remarks[]" placeholder="Notes..."></td>' +
             '<td><button type="button" class="btn btn-danger btn-xs btn-remove-row"><i class="fa fa-trash"></i></button></td>' +
             '</tr>';
-        
+
         $('#products-tbody').append(rowHTML);
-        
+
         // Reset search
         $('#product_search').val('');
         $('#product_id').val('');
-        
+
         // Calculate totals
         updateTotals();
+    }
+
+    // Add product button click (kept as a fallback / manual trigger)
+    $('#btn-add-product').on('click', function(e) {
+        e.preventDefault();
+        addProductRow($('#product_id').val());
     });
 
     // Calculate row total when quantity or price changes
