@@ -785,8 +785,8 @@ class ChartAccountController extends Controller
         $fromDate = Carbon::parse(trim($parts[0]))->format('Y-m-d');
         $toDate = Carbon::parse(trim($parts[1]))->format('Y-m-d');
         $month = array('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec');
-        $sale_arr = $cost_arr = $expense_arr = $tax_arr = array();
-        $s=$c=$e=$t = 0;
+        $sale_arr = $expense_arr = $tax_arr = array();
+        $s=$e=$t = 0;
         $fromDateNum = date('n', strtotime($fromDate));
         $toDateNum = date('n', strtotime($toDate));
         $productId = $request->product_id;
@@ -813,16 +813,6 @@ class ChartAccountController extends Controller
                 ->whereBetween('date', [$fromDate, $toDate])
                 ->orderBy('date', 'asc')
                 ->groupBy(DB::raw('DATE_FORMAT(date, "%b")'))
-                ->get();
-
-        $costs = DB::table('chart_accounts as ca')
-                ->join('vouchers as v', 'ca.id','=','v.chart_account_id')
-                ->select(DB::raw('DATE_FORMAT(v.date, "%b") as month'),
-                        DB::raw('IFNULL(SUM(debit-credit), 0) as costs'))
-                ->whereBetween('v.date', [$fromDate, $toDate])
-                ->where('ca.sub_account_type_id', 8)
-                ->orderBy('v.date', 'asc')
-                ->groupBy(DB::raw('DATE_FORMAT(v.date, "%b")'))
                 ->get();
 
         $caExpenses = DB::table('chart_accounts as ca')
@@ -876,10 +866,9 @@ class ChartAccountController extends Controller
             return 0;
         };
 
-        $ps=$ws=$cc=$ce=$pe=$we=$tc = 0;
+        $ps=$ws=$ce=$pe=$we=$tc = 0;
         for ($i = $fromDateNum - 1; $i < $toDateNum; $i++) {
             $sale_arr[] = $findMonth($posSales, $i, $ps, 'sales') + $findMonth($wrmSales, $i, $ws, 'sales');
-            $cost_arr[] = $findMonth($costs, $i, $cc, 'costs');
             $expense_arr[] = $findMonth($caExpenses, $i, $ce, 'ca_expenses')
                 + $findMonth($posExpenses, $i, $pe, 'expenses')
                 + $findMonth($wrmExpenses, $i, $we, 'expenses');
@@ -888,7 +877,6 @@ class ChartAccountController extends Controller
 
         return [(object) [
             'sales' => $sale_arr,
-            'costs' => $cost_arr,
             'expenses' => $expense_arr,
             'taxes' => $tax_arr,
         ]];
