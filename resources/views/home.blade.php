@@ -40,14 +40,18 @@
       return array_sum(func_get_args());
     }, $posSales, $wrmSales);
 
+    $over_all_revenue = array_map(function ($s, $e) {
+      return $s - $e;
+    }, $over_all_sales, $over_all_expenses);
+
     $month = date('M');
     $firstDayofYear = new Carbon\Carbon('first day of January');
     $thisDay = Carbon\Carbon::now();
 
-    $total_sales    = array_sum($over_all_sales);
-    $total_cost     = array_sum($pos_sales->costs);
-    $total_expenses = array_sum($over_all_expenses);
-    $total_taxes    = array_sum($pos_sales->taxes);
+    $total_sales     = array_sum($over_all_sales);
+    $total_expenses  = array_sum($over_all_expenses);
+    $total_revenues  = array_sum($over_all_revenue);
+    $total_taxes     = array_sum($pos_sales->taxes);
 
     $productOptions = ['' => 'All Products'];
     $productQuery = App\Product::select('products.id', 'products.name', 'products.sr_priority');
@@ -123,7 +127,7 @@
           <!-- LINE CHART -->
           <div class="box pink">
             <div class="box-header with-border">
-              <h3 class="box-title">Total Cost</h3>
+              <h3 class="box-title">Total Expenses</h3>
 
               <div class="box-tools pull-right">
                 <button type="button" class="btn btn-box-tool" data-widget="collapse"><i class="fa fa-minus"></i>
@@ -133,7 +137,7 @@
             </div>
             <div class="box-body">
               <div class="chart">
-                <canvas id="chart-cost" style="height:250px"></canvas>
+                <canvas id="chart-expenses" style="height:250px"></canvas>
               </div>
             </div>
             <!-- /.box-body -->
@@ -146,7 +150,7 @@
           <!-- LINE CHART -->
           <div class="box green">
             <div class="box-header with-border">
-              <h3 class="box-title">Total Expenses</h3>
+              <h3 class="box-title">Total Revenues</h3>
 
               <div class="box-tools pull-right">
                 <button type="button" class="btn btn-box-tool" data-widget="collapse"><i class="fa fa-minus"></i>
@@ -156,7 +160,7 @@
             </div>
             <div class="box-body">
               <div class="chart">
-                <canvas id="chart-expenses" style="height:250px"></canvas>
+                <canvas id="chart-revenues" style="height:250px"></canvas>
               </div>
             </div>
             <!-- /.box-body -->
@@ -212,8 +216,8 @@
           <div class="info-box">
             <span class="info-box-icon bg-red"><i class="fa fa-money"></i></span>
             <div class="info-box-content">
-              <span class="info-box-text">Total Cost</span>
-              <span class="info-box-number" id="total-cost-box"><?php echo number_format($total_cost, 2); ?></span>
+              <span class="info-box-text">Total Expenses</span>
+              <span class="info-box-number" id="total-expenses-box"><?php echo number_format($total_expenses, 2); ?></span>
             </div>
           </div>
         </div>
@@ -222,8 +226,8 @@
           <div class="info-box">
             <span class="info-box-icon bg-green"><i class="fa fa-bar-chart"></i></span>
             <div class="info-box-content">
-              <span class="info-box-text">Total Expenses</span>
-              <span class="info-box-number" id="total-expenses-box"><?php echo number_format($total_expenses, 2); ?></span>
+              <span class="info-box-text">Total Revenues</span>
+              <span class="info-box-number" id="total-revenues-box"><?php echo number_format($total_revenues, 2); ?></span>
             </div>
           </div>
         </div>
@@ -263,10 +267,10 @@
     var chartbcolor = { blue:"rgb(0, 192, 239)",pink:"rgb(255, 99, 132)",green:"rgb(0, 166, 90)",yellow:"rgb(243, 156, 18)" };
     var chartLabelMonths = labelMonth('<?php echo $firstDayofYear; ?>', '<?php echo $thisDay; ?>');
 
-    var chart_name = ["chart-sales","chart-cost","chart-expenses","chart-taxes"];
+    var chart_name = ["chart-sales","chart-expenses","chart-revenues","chart-taxes"];
     var chartSales = new Chart(chart_name[0], charts(<?php echo json_encode($over_all_sales); ?>, 'Sales', chartbgcolor.blue, chartbcolor.blue));
-    var chartCosts = new Chart(chart_name[1], charts(<?php echo json_encode($pos_sales->costs); ?>, 'Costs', chartbgcolor.pink, chartbcolor.pink));
-    var chartExpenses = new Chart(chart_name[2], charts(<?php echo json_encode($over_all_expenses); ?>, 'Expenses', chartbgcolor.green, chartbcolor.green));
+    var chartExpenses = new Chart(chart_name[1], charts(<?php echo json_encode($over_all_expenses); ?>, 'Expenses', chartbgcolor.pink, chartbcolor.pink));
+    var chartRevenues = new Chart(chart_name[2], charts(<?php echo json_encode($over_all_revenue); ?>, 'Revenues', chartbgcolor.green, chartbcolor.green));
     var chartTaxes = new Chart(chart_name[3], charts(<?php echo json_encode($pos_sales->taxes); ?>, 'Taxes', chartbgcolor.yellow, chartbcolor.yellow));
     
     function charts(data, label, bgcolor, bcolor) {
@@ -319,21 +323,24 @@
       $.get(url, { daterange: fromDate + ' - ' + toDate, product_id: productId }, function(data) {
           var newLabels = labelMonth(fromDate, toDate);
           chartSales.data.labels = newLabels;
-          chartCosts.data.labels = newLabels;
           chartExpenses.data.labels = newLabels;
+          chartRevenues.data.labels = newLabels;
           chartTaxes.data.labels = newLabels;
+          var revenues = data[0].sales.map(function(s, i) {
+            return s - (data[0].expenses[i] || 0);
+          });
           chartSales.data.datasets[0].data = data[0].sales;
-          chartCosts.data.datasets[0].data = data[0].costs;
           chartExpenses.data.datasets[0].data = data[0].expenses;
+          chartRevenues.data.datasets[0].data = revenues;
           chartTaxes.data.datasets[0].data = data[0].taxes;
           chartSales.update();
-          chartCosts.update();
           chartExpenses.update();
+          chartRevenues.update();
           chartTaxes.update();
           $('#daterange-label').text('Showing: ' + fromDate + ' – ' + toDate);
           $('#total-sales-box').text(formatAmount(sumArray(data[0].sales)));
-          $('#total-cost-box').text(formatAmount(sumArray(data[0].costs)));
           $('#total-expenses-box').text(formatAmount(sumArray(data[0].expenses)));
+          $('#total-revenues-box').text(formatAmount(sumArray(revenues)));
           $('#total-taxes-box').text(formatAmount(sumArray(data[0].taxes)));
       });
     });
@@ -343,21 +350,21 @@
       $('#product-filter').val('');
       var origLabels = labelMonth('<?php echo $firstDayofYear; ?>', '<?php echo $thisDay; ?>');
       chartSales.data.labels = origLabels;
-      chartCosts.data.labels = origLabels;
       chartExpenses.data.labels = origLabels;
+      chartRevenues.data.labels = origLabels;
       chartTaxes.data.labels = origLabels;
       chartSales.data.datasets[0].data = <?php echo json_encode($over_all_sales); ?>;
-      chartCosts.data.datasets[0].data = <?php echo json_encode($pos_sales->costs); ?>;
       chartExpenses.data.datasets[0].data = <?php echo json_encode($over_all_expenses); ?>;
+      chartRevenues.data.datasets[0].data = <?php echo json_encode($over_all_revenue); ?>;
       chartTaxes.data.datasets[0].data = <?php echo json_encode($pos_sales->taxes); ?>;
       chartSales.update();
-      chartCosts.update();
       chartExpenses.update();
+      chartRevenues.update();
       chartTaxes.update();
       $('#daterange-label').text('Showing: <?php echo date("M j, Y", strtotime($firstDayofYear)); ?> – <?php echo date("M j, Y", strtotime($thisDay)); ?>');
       $('#total-sales-box').text(formatAmount(<?php echo $total_sales; ?>));
-      $('#total-cost-box').text(formatAmount(<?php echo $total_cost; ?>));
       $('#total-expenses-box').text(formatAmount(<?php echo $total_expenses; ?>));
+      $('#total-revenues-box').text(formatAmount(<?php echo $total_revenues; ?>));
       $('#total-taxes-box').text(formatAmount(<?php echo $total_taxes; ?>));
     });
 
@@ -389,7 +396,7 @@
       $(this).val('');
     });
     
-    //'chart-sales' 'chart-cost' 'chart-expenses' 'chart-taxes'
+    //'chart-sales' 'chart-expenses' 'chart-revenues' 'chart-taxes'
     
 }());
 </script>
