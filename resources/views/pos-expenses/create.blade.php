@@ -181,13 +181,8 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
                 <!-- /btn-group -->
                 <input type="text" name="description" class="form-control">
               </div>
-              <div class="input-group input-group-sm">
-                <div class="input-group-btn">
-                  <button type="button" class="btn">Amount</button>
-                </div>
-                <!-- /btn-group -->
-                <input type="text" name="amount" class="form-control">
-              </div>
+              <!-- Amount is derived from the Products / Items total below -->
+              <input type="hidden" name="amount" id="amount" value="0.00">
             </div>
             
             </div>
@@ -508,6 +503,7 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
             totalAmount += total;
         });
         $('#total-amount').text(totalAmount.toFixed(2));
+        $('#amount').val(totalAmount.toFixed(2));
     }
 
     // Form submission - prepare product data
