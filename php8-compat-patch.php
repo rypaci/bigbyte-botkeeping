@@ -46,11 +46,20 @@ $patches = [
         'file'    => $fw . '/Foundation/Bootstrap/HandleExceptions.php',
         'search'  => 'error_reporting(-1);',
         'replace' => 'error_reporting(E_ALL & ~E_DEPRECATED);',
+        // This vendor/ was hand-patched over FTP years before this script
+        // existed, with a broader mask than the one above. composer leaves
+        // laravel/framework alone (the lock pins the installed version), so
+        // that hand-patch survives every install. Treat any error_reporting()
+        // that already masks out E_DEPRECATED as satisfying this patch.
+        'equivalent' => '/error_reporting\(\s*E_ALL\s*&\s*~\s*E_DEPRECATED/',
     ],
     [
         'file'    => $fw . '/Foundation/Bootstrap/HandleExceptions.php',
         'search'  => 'if (error_reporting() & $level) {',
         'replace' => 'if ((error_reporting() & $level) && ! ($level & E_DEPRECATED)) {',
+        // The same hand-patch returns early for the deprecation levels instead
+        // of guarding the throw. Equivalent outcome: no ErrorException.
+        'equivalent' => '/in_array\(\s*\$level\s*,\s*\[\s*E_DEPRECATED/',
     ],
     [
         'file'    => $fw . '/Database/Query/Builder.php',
@@ -91,7 +100,8 @@ foreach ($patches as $p) {
     }
 
     $contents = file_get_contents($p['file']);
-    $hasPatched  = strpos($contents, $p['replace']) !== false;
+    $hasPatched  = strpos($contents, $p['replace']) !== false
+        || (isset($p['equivalent']) && preg_match($p['equivalent'], $contents) === 1);
     $hasOriginal = strpos($contents, $p['search'])  !== false;
 
     if ($checkOnly) {
