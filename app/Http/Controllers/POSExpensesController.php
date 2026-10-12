@@ -202,6 +202,14 @@ class POSExpensesController extends Controller
         return response()->json($response);
     }
 
+    private function productNamesSelect(){
+        if (!pos_expense_items_table_exists()) {
+            return DB::raw('NULL as product_names');
+        }
+
+        return DB::raw("(SELECT GROUP_CONCAT(DISTINCT p.name ORDER BY p.name SEPARATOR ', ') FROM pos_expense_items pei JOIN products p ON p.id = pei.product_id WHERE pei.pos_expense_id = p_o_s_expenses.id) as product_names");
+    }
+
     public function trackExpenses(Request $request){
 
         $search_vendor_name = $request->search_vendor_name;
@@ -212,7 +220,7 @@ class POSExpensesController extends Controller
 
             $expenses_reports = DB::table('p_o_s_expenses')
             ->leftjoin('vendors', 'vendors.id', '=', 'p_o_s_expenses.vendor_id')
-            ->select('vendors.*', 'p_o_s_expenses.*')
+            ->select('vendors.*', 'p_o_s_expenses.*', $this->productNamesSelect())
             ->where(DB::raw('TRIM(CONCAT(vendors.first_name, " ", vendors.middle_name, " ", vendors.last_name,"", vendors.company_name))'), 'LIKE', "%$search_vendor_name%")
             ->orderBy('p_o_s_expenses.date', 'ASC')
             ->paginate(10);
@@ -229,7 +237,7 @@ class POSExpensesController extends Controller
 
             $expenses_reports = DB::table('p_o_s_expenses')
             ->leftjoin('vendors', 'vendors.id', '=', 'p_o_s_expenses.vendor_id')
-            ->select('vendors.*', 'p_o_s_expenses.*')
+            ->select('vendors.*', 'p_o_s_expenses.*', $this->productNamesSelect())
             ->whereBetween('p_o_s_expenses.date', array($start, $end))
             ->orderBy('vendors.last_name','vendors.company_name', 'ASC')
             ->paginate(10);
@@ -245,7 +253,7 @@ class POSExpensesController extends Controller
         }else{
             $expenses_reports = DB::table('p_o_s_expenses')
             ->leftjoin('vendors', 'vendors.id', '=', 'p_o_s_expenses.vendor_id')
-            ->select('vendors.*', 'p_o_s_expenses.*', 'vendors.id as v_id')
+            ->select('vendors.*', 'p_o_s_expenses.*', 'vendors.id as v_id', $this->productNamesSelect())
             ->orderBy('vendors.last_name','vendors.company_name', 'ASC')
             ->paginate(10);
 
