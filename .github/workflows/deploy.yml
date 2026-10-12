@@ -26,6 +26,24 @@ jobs:
           echo "--- what will be uploaded ---"
           ls -a
 
+      - name: Make remote .htaccess files writable
+        # SFTP `put` failed with "Permission denied" on public/.htaccess when
+        # the server copy was read-only. Remove it so the upload can recreate it.
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 22
+          script: |
+            cd /home/bigbyte/public_html/botkeeping
+            for f in .htaccess public/.htaccess; do
+              if [ -e "$f" ]; then
+                chmod u+w "$(dirname "$f")" "$f" || true
+                rm -f "$f"
+              fi
+            done
+
       - name: Deploy via SFTP (code only, no dependencies)
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
