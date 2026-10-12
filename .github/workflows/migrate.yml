@@ -1,0 +1,103 @@
+name: Migrate
+
+# Schema changes are deliberate, never automatic. Run this from
+# Actions > Migrate > Run workflow, AFTER the deploy that ships the migration
+# files - this workflow only runs what is already on the server, it does not
+# deploy anything.
+#
+# Leave "pretend" ticked the first time: it prints the SQL each migration would
+# run without executing any of it.
+on:
+  workflow_dispatch:
+    inputs:
+      pretend:
+        description: "Dry run - show the SQL without applying it"
+        type: boolean
+        default: true
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run migrations on the server
+        id: ssh
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: 22
+          command_timeout: 15m
+          capture_stdout: true
+          script: |
+            # `set -e` is what makes a failing command fail the run; this action
+            # has no script_stop input and would otherwise exit with the status
+            # of its *last* command.
+            set -euo pipefail
+
+            # Sentinel. This account has had shell access disabled before, in
+            # which case the host prints a notice, exits 0, and the action
+            # reports success while nothing ran at all. The step after this one
+            # greps for this marker so a silent no-op fails loudly.
+            echo "__MIGRATE_SHELL_OK__"
+
+            cd /home/bigbyte/public_html/botkeeping
+
+            # ea-php80 is the build that serves requests. Plain `php` is a
+            # different version, so the app would be validated against a
+            # runtime that never handles a request.
+            PHP=/opt/cpanel/ea-php80/root/usr/bin/php
+            [ -x "$PHP" ] || PHP=php
+            echo "php: $("$PHP" -r 'echo PHP_VERSION;')"
+
+            # Credentials come from the server's .env, so they never appear in
+            # this workflow or in its logs.
+            DB=$(grep -m1 '^DB_DATABASE=' .env | cut -d= -f2-)
+            DU=$(grep -m1 '^DB_USERNAME=' .env | cut -d= -f2-)
+            DP=$(grep -m1 '^DB_PASSWORD=' .env | cut -d= -f2-)
+
+            # Always snapshot first. A migration that mangles data is far
+            # cheaper to undo than to reconstruct. storage/ is pruned from
+            # deploys, so these survive. Written via a defaults file rather than
+            # -p so the password is not visible in the process list.
+            STAMP=$(date +%F-%H%M%S)
+            mkdir -p storage/db-backups
+            umask 077
+            CNF=$(mktemp)
+            printf '[client]\nuser=%s\npassword=%s\n' "$DU" "$DP" > "$CNF"
+            mysqldump --defaults-extra-file="$CNF" --single-transaction "$DB" \
+              > "storage/db-backups/pre-migrate-$STAMP.sql"
+            rm -f "$CNF"
+            echo "backup: storage/db-backups/pre-migrate-$STAMP.sql ($(du -h "storage/db-backups/pre-migrate-$STAMP.sql" | cut -f1))"
+
+            echo "--- pending before ---"
+            "$PHP" artisan migrate:status | grep -i "^| *N" || echo "(none pending)"
+
+            if [ "${{ inputs.pretend }}" = "true" ]; then
+              echo "--- DRY RUN: nothing will be applied ---"
+              "$PHP" artisan migrate --force --pretend
+            else
+              echo "--- APPLYING ---"
+              "$PHP" artisan migrate --force
+              echo "--- pending after ---"
+              "$PHP" artisan migrate:status | grep -i "^| *N" || echo "(none pending)"
+            fi
+
+            # Keep the 10 most recent snapshots.
+            ls -1t storage/db-backups/pre-migrate-*.sql 2>/dev/null | tail -n +11 | xargs -r rm -f
+
+      - name: Fail if the server shell never ran
+        # Without this, a host with shell access disabled makes the step above
+        # report success while having done nothing - which is how this account
+        # silently skipped every server-side deploy step for a month.
+        env:
+          OUT: ${{ steps.ssh.outputs.stdout }}
+        run: |
+          if ! printf '%s' "$OUT" | grep -q "__MIGRATE_SHELL_OK__"; then
+            echo "::error::The migration script never executed on the server."
+            echo "Shell access is probably disabled for this cPanel account."
+            echo "Enable it in WHM > Account Functions > Manage Shell Access (Jailed Shell)."
+            exit 1
+          fi
+          echo "Server shell executed the script."
