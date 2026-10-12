@@ -95,8 +95,13 @@ The server runs **two different PHP builds**, and this has bitten us:
 
 | | Version | Used for |
 |---|---|---|
-| **Web (LiteSpeed)** | **8.0.30** | Every HTTP request — `ea-php80`, set by `AddHandler` in `.htaccess` |
-| CLI (`php`) | 8.2.32 | `artisan`, cron, anything you run over SSH |
+| **Web** | **8.0.30** | Every HTTP request — `ea-php80`, set per-domain in cPanel's MultiPHP Manager |
+| CLI (`php`) | 8.0.30 | `artisan`, cron, anything run over SSH as the `bigbyte` user |
+
+> As of 2026-10-12 these match: cPanel sets the account's CLI to the same build as the
+> domain, and the deploy logs `web php: 8.0.30  cli php: 8.0.30`. They have not always
+> matched (the CLI was 8.2.32), and `php` as **root** may still differ — so the deploy
+> keeps using the explicit `ea-php80` path rather than trusting `php`.
 
 **The web version is the one that matters.** Pinning composer to the CLI's 8.2.32 resolved
 packages requiring PHP ≥ 8.1 and generated `vendor/composer/platform_check.php`, which
@@ -108,7 +113,17 @@ So: the deploy runs composer, the shim and the boot check through
 something by hand over SSH, use that binary, not plain `php`.
 
 `ea-php81`, `ea-php82` and `ea-php83` are installed on the box, so moving the site to a
-newer PHP is a `.htaccess` handler change plus a re-resolve — but test it, don't assume.
+newer PHP is a MultiPHP Manager change plus a re-resolve — but test it, don't assume.
+
+> ⚠️ **Both `.htaccess` files are maintained on the server, not here.** The root one
+> carries the rewrite into `public/` plus cPanel's managed handler block; `public/.htaccess`
+> is Laravel's front controller config. The deploy prunes `public/.htaccess` before upload
+> and never matched the root one (`local_path: "./*"` is a glob and skips top-level
+> dotfiles), so **a deploy cannot repair either file**. On 2026-10-05 a security scanner
+> replaced both with a deny-all `<FilesMatch>` block and took the site down; recovery was
+> by hand. If PHP files start returning 403, or everything 500s, check these two files
+> first — changing the PHP version in MultiPHP Manager will appear to do nothing, because
+> `.htaccess` overrides it.
 
 Laravel 5.2's `HandleExceptions` bootstrapper calls `error_reporting(-1)`
 and rethrows **every** reported error as an `ErrorException`. On PHP 8 the 5.2 / Symfony 2.8
@@ -244,7 +259,8 @@ gh workflow run deploy.yml --ref main
 The workflow:
 
 1. Checks out the code, then prunes what shouldn't ship — `.git`, `.github`, `storage`,
-   `tests`, and defensively any `*.sql`, `phpinfo.php` or `composer.phar` that reappears.
+   `tests`, `public/.htaccess` (server-managed, see above), and defensively any `*.sql`,
+   `phpinfo.php` or `composer.phar` that reappears.
 2. Uploads the app to the server via SFTP.
 3. On the server: snapshots `vendor/`, runs `composer install --no-dev`, applies
    `php8-compat-patch.php` (verified with `--check`), then clears `bootstrap/cache` and the
@@ -272,3 +288,65 @@ PHP_BIN=/opt/cpanel/ea-php80/root/usr/bin/php   # the WEB php, not plain `php`
 "$PHP_BIN" artisan --version            # silence here means the framework can't boot
 "$PHP_BIN" php8-compat-patch.php --check
 ```
+
+---
+
+## Database migrations
+
+**Deploys never run migrations.** There is one environment and it holds live accounting
+data, so a schema change is always a separate, deliberate act.
+
+Run [`.github/workflows/migrate.yml`](.github/workflows/migrate.yml) from
+**Actions → Migrate → Run workflow**, *after* the deploy that ships the migration files —
+this workflow does not deploy.
+
+1. Run it once with **`pretend` ticked** (the default). It backs up the database, prints
+   the SQL each pending migration would execute, and applies nothing.
+2. Read that SQL. If it is right, run it again with **`pretend` unticked**.
+
+Every run snapshots the database to `storage/db-backups/pre-migrate-<timestamp>.sql` first
+and refuses to continue unless the dump completed. The last 10 are kept. `storage/` is
+pruned from deploys, so they survive.
+
+### Why the workflow checks that it actually ran
+
+`appleboy/ssh-action` reports **success** when a host refuses a shell: the remote prints
+`Shell access is not enabled on your account!`, exits 0, and the step goes green having done
+nothing. Every server-side deploy step was silently skipped that way until 2026-10-12. The
+migrate script therefore echoes a sentinel and a following step greps the captured output
+for it, so a no-op fails loudly.
+
+If that step fails, shell access is off for the account. Re-enable it with:
+
+```bash
+whmapi1 modifyacct user=bigbyte shell=/usr/local/cpanel/bin/jailshell
+```
+
+### Running one by hand
+
+Still possible from a root SSH session, and the fallback if Actions is unavailable:
+
+```bash
+su -s /bin/bash bigbyte -c "cd /home/bigbyte/public_html/botkeeping && \
+  /opt/cpanel/ea-php80/root/usr/bin/php artisan migrate --path=database/migrations --force"
+```
+
+Three things matter there. Run it **as `bigbyte`, never as root** — artisan as root leaves
+root-owned files in `storage/` and `bootstrap/cache` that the web user cannot write, which
+surfaces as a 500 hours later. Use the **`ea-php80`** binary so it matches the web SAPI. And
+`--path` takes a **directory**: Laravel 5.2 globs `$path.'/*_*.php'`, so passing a single
+filename silently prints `Nothing to migrate`.
+
+### The migrations table was baselined
+
+On 2026-10-12 the `migrations` table was reconciled with reality. One migration
+(`2017_01_26_131745_add_discount_col`) had never been recorded despite its effect being in
+the schema for years, so `php artisan migrate` kept trying to replay it and died with
+`Unknown column 'discount' in 'discounts'` — a later migration had renamed that column to
+`name`. Recording it (batch 0) fixed it, and `migrate` now reports `Nothing to migrate` on a
+clean tree.
+
+If that symptom ever returns, the cause is the same: a migration applied by hand without
+being recorded. Record it rather than editing the migration.
+
+---
