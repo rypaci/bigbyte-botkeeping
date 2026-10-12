@@ -219,11 +219,10 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
                         <table class="table table-hover table-striped" id="products-table">
                             <thead>
                                 <tr>
-                                    <th style="width: 30%">Product Name</th>
-                                    <th style="width: 15%">Cost Price</th>
-                                    <th style="width: 15%">Quantity</th>
+                                    <th style="width: 35%">Product Name</th>
+                                    <th style="width: 20%">Cost Price</th>
                                     <th style="width: 15%">Total</th>
-                                    <th style="width: 15%">Remarks</th>
+                                    <th style="width: 20%">Remarks</th>
                                     <th style="width: 10%">Action</th>
                                 </tr>
                             </thead>
@@ -232,7 +231,7 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
                             </tbody>
                             <tfoot>
                                 <tr>
-                                    <th colspan="3" style="text-align: right; font-size: 16px;">Total Amount:</th>
+                                    <th colspan="2" style="text-align: right; font-size: 16px;">Total Amount:</th>
                                     <th class="total-amount"><span id="total-amount">0.00</span></th>
                                     <th colspan="2"></th>
                                 </tr>
@@ -456,8 +455,7 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
         var rowHTML = '<tr class="remove-product-row" data-product-id="' + productId + '">' +
             '<td><input type="hidden" name="product_ids[]" value="' + productId + '">' + productName + '</td>' +
             '<td><input type="text" class="form-control cost-price" value="' + costPrice.toFixed(2) + '" data-product-id="' + productId + '"></td>' +
-            '<td><input type="number" class="form-control quantity" value="1" min="1" data-product-id="' + productId + '"></td>' +
-            '<td class="total-cost"><span class="row-total">' + (costPrice * 1).toFixed(2) + '</span></td>' +
+            '<td class="total-cost"><span class="row-total">' + costPrice.toFixed(2) + '</span></td>' +
             '<td><input type="text" class="form-control remarks" name="product_remarks[]" placeholder="Notes..."></td>' +
             '<td><button type="button" class="btn btn-danger btn-xs btn-remove-row"><i class="fa fa-trash"></i></button></td>' +
             '</tr>';
@@ -478,13 +476,11 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
         addProductRow($('#product_id').val());
     });
 
-    // Calculate row total when quantity or price changes
-    $(document).on('change', '.quantity, .cost-price', function() {
+    // Calculate row total when price changes
+    $(document).on('change', '.cost-price', function() {
         var $row = $(this).closest('tr');
-        var quantity = parseFloat($row.find('.quantity').val()) || 0;
         var costPrice = parseFloat($row.find('.cost-price').val()) || 0;
-        var total = quantity * costPrice;
-        $row.find('.row-total').text(total.toFixed(2));
+        $row.find('.row-total').text(costPrice.toFixed(2));
         updateTotals();
     });
 
@@ -521,14 +517,13 @@ table.table.table-hover.table-vendor-info { font-size: 12px; }
         var productDetails = [];
         $('#products-tbody tr').each(function(index) {
             var productId = $(this).data('product-id');
-            var quantity = $(this).find('.quantity').val();
             var costPrice = $(this).find('.cost-price').val();
             var totalPrice = $(this).find('.row-total').text();
             var remarks = $(this).find('.remarks').val();
             
             productDetails.push({
                 product_id: productId,
-                quantity: quantity,
+                quantity: 1,
                 cost_price: costPrice,
                 total_price: totalPrice,
                 remarks: remarks
