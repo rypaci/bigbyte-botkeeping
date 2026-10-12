@@ -261,7 +261,7 @@ class POSExpensesController extends Controller
 
     public function getRecordDestroy($id){
         POSExpenses::find($id)->delete();
-            return redirect('p_o_s_expenses/tracks-expenses')
+            return redirect('pos-expenses/tracks-expenses')
                 ->with('success','Record is successfully deleted');
     }
 }
