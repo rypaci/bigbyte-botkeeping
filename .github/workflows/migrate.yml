@@ -66,9 +66,19 @@ jobs:
             umask 077
             CNF=$(mktemp)
             printf '[client]\nuser=%s\npassword=%s\n' "$DU" "$DP" > "$CNF"
-            mysqldump --defaults-extra-file="$CNF" --single-transaction "$DB" \
+            # --no-tablespaces: MySQL 5.7.31+/8.0 require the PROCESS privilege to
+            # dump tablespace metadata, which this grant does not have. Without
+            # the flag mysqldump errors out and set -e fails the whole run.
+            mysqldump --defaults-extra-file="$CNF" --no-tablespaces \
+              --single-transaction "$DB" \
               > "storage/db-backups/pre-migrate-$STAMP.sql"
+            # Drop the credentials file immediately - before any check that can
+            # exit - so it is never left behind on a failure path.
             rm -f "$CNF"
+
+            # A dump that died part-way is not a backup. Prove it finished.
+            tail -5 "storage/db-backups/pre-migrate-$STAMP.sql" | grep -q "Dump completed" \
+              || { echo "::error::mysqldump did not complete - refusing to migrate"; exit 1; }
             echo "backup: storage/db-backups/pre-migrate-$STAMP.sql ($(du -h "storage/db-backups/pre-migrate-$STAMP.sql" | cut -f1))"
 
             echo "--- pending before ---"
