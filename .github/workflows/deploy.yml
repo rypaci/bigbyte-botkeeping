@@ -23,6 +23,16 @@ jobs:
           # Belt and braces: these were removed from the repo, but if anyone
           # re-adds a dump, a phpinfo or the composer binary, don't ship it.
           rm -f ./*.sql phpinfo.php composer.phar
+          # public/.htaccess is server-managed and must NOT be uploaded.
+          # `local_path: "./*"` is a glob: it skips top-level dotfiles, so the
+          # root .htaccess was never deployed - but ./public IS matched, and the
+          # recursive upload carries its dotfiles along. The server copy is
+          # read-only (a security tool locked it down on 2026-10-05 after
+          # replacing both .htaccess files with a deny-all block), so SFTP dies
+          # with "remote open(...): Permission denied" and fails the whole
+          # deploy. Pruning it here leaves the server's copy untouched, which is
+          # what we want: both .htaccess files are maintained on the server.
+          rm -f public/.htaccess
           echo "--- what will be uploaded ---"
           ls -a
 
