@@ -57,7 +57,7 @@
                     <th align="center">Invoice No.</th>
                     <th align="center">Vendor Name</th>
                     <th align="center">Terms</th>
-                    <th align="center">Period/days</th>
+                    <th align="center">Products/Projects</th>
                     <th align="center">Amount</th>
                     <th align="center">Description</th>
                     <th align="center">Date</th>
@@ -79,7 +79,7 @@
                 <td>{{ $value->invoice_no }}</td>
                 <td><span>{{ $value->first_name." ".$value->last_name." ".$value->company_name }}</span></td>
                 <td>{{ $value->terms }}</td>
-                <td align="right">{{ $value->period }}</td>
+                <td>{{ $value->product_names }}</td>
                 <td align="right">{{ number_format($value->amount, 2) }}</td>
                 <td>{{ $value->description }}</td>
                 <td align="center">{{ $value->date }}</td>
