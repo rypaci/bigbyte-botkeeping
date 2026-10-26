@@ -330,6 +330,97 @@ class POSController extends Controller
         return view('point-of-sale.show', compact('pos_records','customer_info','pos_sold_products'));
 	}
 
+    public function edit($id){
+
+        $pos_record = POS_sales::findOrFail($id);
+
+        $pos_sold_products = POS_soldstock::from('p_o_s_soldstocks as sp')
+        ->leftjoin('products as p', 'sp.product_id', '=', 'p.id')
+        ->select('sp.product_id', 'p.name', 'p.sr_priority', 'sp.qty', 'sp.price', 'sp.amount')
+        ->where('sp.sales_id', $id)
+        ->orderBy('sp.id')
+        ->get();
+
+        $customer = Customer::find($pos_record->customer_id);
+        $customer_name = '';
+        if($customer){
+            $customer_name = trim($customer->first_name.' '.$customer->middle_name.' '.$customer->last_name.' '.$customer->company_name);
+            $customer_name = preg_replace('/\s+/', ' ', $customer_name);
+        }
+
+        $amount_paid = $pos_record->status == 'Paid'
+            ? (float) $pos_record->amount_due
+            : max((float) $pos_record->amount_due - (float) $pos_record->amt_balance, 0);
+
+        return view('point-of-sale.edit', compact('pos_record', 'pos_sold_products', 'customer_name', 'amount_paid'));
+    }
+
+    public function update(Request $request, $id){
+
+        $pos_sales = POS_sales::findOrFail($id);
+
+        $this->validate($request, [
+            'date' => 'required|date',
+            'products' => 'required|array',
+            'products.*.product_id' => 'required',
+            'products.*.qty' => 'required|numeric|min:0.01',
+            'products.*.price' => 'required|numeric|min:0',
+            'amount_pay' => 'numeric|min:0',
+        ], [
+            'products.required' => 'Please add at least one product.',
+        ]);
+
+        $customer_id = $request->customer_id;
+        if(empty($customer_id)){
+            $customer_id = $pos_sales->customer_id;
+        }
+
+        $amount_due = 0;
+        $rows = [];
+        foreach($request->products as $product){
+            $qty = (float) $product['qty'];
+            $price = (float) $product['price'];
+            $amount = round($qty * $price, 2);
+            $amount_due += $amount;
+            $rows[] = [
+                'sales_id' => $id,
+                'product_id' => $product['product_id'],
+                'qty' => $product['qty'],
+                'price' => $price,
+                'amount' => $amount,
+                'date' => $request->date,
+            ];
+        }
+
+        $amount_due = round($amount_due, 2);
+        $amount_pay = (float) $request->amount_pay;
+        $balance = max(round($amount_due - $amount_pay, 2), 0);
+
+        if($balance == 0){
+            $status = 'Paid';
+        }elseif($amount_pay == 0){
+            $status = 'Unpaid';
+        }else{
+            $status = 'Balanced';
+        }
+
+        DB::transaction(function() use ($pos_sales, $id, $customer_id, $amount_due, $balance, $status, $request, $rows){
+            $pos_sales->customer_id = $customer_id;
+            $pos_sales->amount_due = $amount_due;
+            $pos_sales->amt_balance = $balance;
+            $pos_sales->sales_date = $request->date;
+            $pos_sales->status = $status;
+            $pos_sales->save();
+
+            POS_soldstock::where('sales_id', $id)->delete();
+            foreach($rows as $row){
+                POS_soldstock::create($row);
+            }
+        });
+
+        return redirect('point-of-sale/reports')->with('success', 'Sales record has been successfully updated.');
+    }
+
     public function reports(Request $request){ 
 
         $search_cust_name = $request->search_cust_name;

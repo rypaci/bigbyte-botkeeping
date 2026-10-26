@@ -123,6 +123,7 @@
                 @endif
                 <td align="center">
                     <a href="{{ url('point-of-sale/' . $value->id) }}" class="btn btn-primary btn-xs" title="View Details"><i class="fa fa-eye"></i></a>
+                    <a href="{{ url('point-of-sale/' . $value->id . '/edit') }}" class="btn btn-warning btn-xs" title="Edit"><i class="fa fa-pencil"></i></a>
                     <a class="btn btn-danger btn-xs" href="{{ url('point-of-sale/delete-pos', $value->id) }}" onclick = 'return confirm("Are you sure to delete this record?")'><i class="fa fa-trash"></i></a>
                 </td>
             </tr>
