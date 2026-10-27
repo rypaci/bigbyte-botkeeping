@@ -119,9 +119,9 @@ newer PHP is a MultiPHP Manager change plus a re-resolve — but test it, don't 
 > carries the rewrite into `public/` plus cPanel's managed handler block; `public/.htaccess`
 > is Laravel's front controller config. The deploy prunes `public/.htaccess` before upload
 > and never matched the root one (`local_path: "./*"` is a glob and skips top-level
-> dotfiles), so **a deploy cannot repair either file**. On 2026-10-05 a security scanner
-> replaced both with a deny-all `<FilesMatch>` block and took the site down; recovery was
-> by hand. If PHP files start returning 403, or everything 500s, check these two files
+> dotfiles), so **a deploy cannot repair either file**. On 2026-10-05 malware (see
+> [Security](#security)) replaced both with a deny-all `<FilesMatch>` block and took the
+> site down; recovery was by hand. If PHP files start returning 403, or everything 500s, check these two files
 > first — changing the PHP version in MultiPHP Manager will appear to do nothing, because
 > `.htaccess` overrides it.
 
@@ -288,6 +288,33 @@ PHP_BIN=/opt/cpanel/ea-php80/root/usr/bin/php   # the WEB php, not plain `php`
 "$PHP_BIN" artisan --version            # silence here means the framework can't boot
 "$PHP_BIN" php8-compat-patch.php --check
 ```
+
+---
+
+## Security
+
+The `bigbyte` cPanel account was compromised in 2026-10, and this app was the way in. It
+lives inside `public_html`, so **every folder outside `public/` was reachable over HTTP** —
+including `vendor/`, which then held dev packages (PHPUnit's `eval-stdin.php` runs any PHP
+it is sent). Web shells planted under `vendor/` were used to rewrite the WordPress site on
+the same account, and this repo's initial import copied one of them,
+`app/Exceptions/cache-handler.php`, straight off the infected server — so every deploy
+re-uploaded it until it was removed.
+
+What now guards against a repeat:
+
+- **`.github/scripts/malware-scan.sh`** runs first in both CI and Deploy and fails the run
+  if any tracked file matches a signature of the shells found on the server. If it fires,
+  look at the file — don't widen the exclusions to make it pass.
+- **The deploy writes `Require all denied` into `app/`, `bootstrap/`, `config/`,
+  `database/`, `resources/`, `storage/`, `tests/` and `vendor/` on every run**, so only
+  `public/` serves requests.
+- **Never commit files copied from the server.** Rebuild `vendor/` with
+  `composer install --no-dev`; dev packages must never exist on the server.
+
+The lasting fix is to move the app out of `public_html` and point the subdomain's document
+root at `public/`, which removes the exposure instead of denying it folder by folder. That
+also needs `remote_path` in [`deploy.yml`](.github/workflows/deploy.yml) changed to match.
 
 ---
 

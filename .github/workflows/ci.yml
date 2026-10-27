@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Scan for known backdoors
+        run: bash .github/scripts/malware-scan.sh
+
       # 8.0, not 8.2. The server's CLI is 8.2.32 but LiteSpeed serves requests
       # with ea-php80 (8.0.30), and the web version is the one that matters.
       - name: Set up PHP 8.0 (matches the server's WEB sapi)

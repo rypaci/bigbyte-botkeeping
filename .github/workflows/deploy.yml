@@ -15,6 +15,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
+      # Runs before the prune below deletes .git and .github. A deploy is the one
+      # path that writes this repo onto the live server, so it must not be able
+      # to ship a web shell - see README > Security.
+      - name: Scan for known backdoors
+        run: bash .github/scripts/malware-scan.sh
+
       - name: Remove files that should not be deployed
         # The SFTP action has no 'exclude' input, so we prune here instead.
         # storage/ and tests/ are kept on the server; .git/.github are CI-only.
@@ -27,8 +33,8 @@ jobs:
           # `local_path: "./*"` is a glob: it skips top-level dotfiles, so the
           # root .htaccess was never deployed - but ./public IS matched, and the
           # recursive upload carries its dotfiles along. The server copy is
-          # read-only (a security tool locked it down on 2026-10-05 after
-          # replacing both .htaccess files with a deny-all block), so SFTP dies
+          # read-only (malware locked it down on 2026-10-05 after replacing
+          # both .htaccess files with a deny-all block), so SFTP dies
           # with "remote open(...): Permission denied" and fails the whole
           # deploy. Pruning it here leaves the server's copy untouched, which is
           # what we want: both .htaccess files are maintained on the server.
@@ -100,6 +106,15 @@ jobs:
             # can run. Removing the files works regardless of app boot state.
             rm -f bootstrap/cache/*.php
             find storage/framework/views -type f -name "*.php" -delete
+
+            # The app lives inside public_html, so everything outside public/ is
+            # reachable over HTTP unless denied. That is how the server was
+            # compromised in 2026-10: PHP planted in vendor/ was requested directly.
+            # Rewritten every deploy because composer can recreate vendor/ and
+            # storage/ + tests/ are never uploaded. See README > Security.
+            for d in app bootstrap config database resources storage tests vendor; do
+              if [ -d "$d" ]; then printf 'Require all denied\n' > "$d/.htaccess"; fi
+            done
 
             # No recursive chmod. The previous `find . -type d -exec chmod 755`
             # rewrote permissions across storage/ and bootstrap/cache/ on every
