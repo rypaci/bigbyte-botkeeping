@@ -31,6 +31,13 @@
  *        it behind a blank 500. Cast non-scalar replacement values to a
  *        JSON string so the real error message always surfaces.
  *
+ *   8.   Controller::callAction() passes the route parameters (an array keyed
+ *        by route-parameter name) straight to call_user_func_array(). PHP 8
+ *        treats string keys as named arguments, so a resource route such as
+ *        pos-expenses/{pos_expenses} hitting `edit($id)` fails with
+ *        "Unknown named parameter $pos_expenses". Pass them positionally, as
+ *        PHP 7 did.
+ *
  * Usage:  php php8-compat-patch.php  [--check]
  *   --check   report whether all patches are applied; exit 1 if any is missing.
  *             The deploy runs this so it fails loudly rather than shipping an
@@ -85,6 +92,11 @@ $patches = [
         'file'    => $fw . '/Support/helpers.php',
         'search'  => "        foreach (\$replace as \$value) {\n            \$subject = preg_replace('/'.\$search.'/', \$value, \$subject, 1);\n        }",
         'replace' => "        foreach (\$replace as \$value) {\n            if (! is_scalar(\$value) && ! is_null(\$value)) {\n                \$value = json_encode(\$value);\n            }\n            \$subject = preg_replace('/'.\$search.'/', \$value, \$subject, 1);\n        }",
+    ],
+    [
+        'file'    => $fw . '/Routing/Controller.php',
+        'search'  => 'return call_user_func_array([$this, $method], $parameters);',
+        'replace' => 'return call_user_func_array([$this, $method], array_values($parameters));',
     ],
 ];
 
