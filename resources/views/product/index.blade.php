@@ -50,6 +50,18 @@
         </div>
     @endif
 
+    @if (count($errors) > 0)
+        <div class="alert alert-danger alert-product">
+            <ul style="margin-bottom: 0;">
+                @foreach ($errors->all() as $error)
+                    <li>{{ $error }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
+    @include('product._expiry-popup')
+
     <section class="content">
         <div class="table-responsive">
             <table class="table table-bordered table-striped table-hover">
@@ -105,10 +117,11 @@
                 <td align="right">{{ $item->price }}</td>
                 <td>{{ $item->first_name }} {{ $item->middle_name }} {{ $item->last_name }}{{ $item->company_name }}</td>
                 <td>{{ $item->inventory_status }}</td>
-                <td>
+                <td class="actions-cell">
                     <a class="btn btn-success btn-xs" href="{{ route('product.show', $item->id) }}"><i class="fa fa-eye"></i></a>
                     <a class="btn btn-primary btn-xs" href="{{ route('product.edit', $item->id) }}"><i class="fa fa-pencil"></i></a>
                     <a class="btn btn-primary btn-xs" href="{{ url('product/details', $item->id) }}" title="Stock Details"><i class="fa fa-th-list"></i></a>
+                    <button type="button" class="btn btn-success btn-xs btn-restock" data-id="{{ $item->id }}" title="Restock"><i class="fa fa-plus-square"></i></button>
                     {!! Form::open(['method' => 'DELETE','route' => ['product.destroy', $item->id],'style'=>'display:inline']) !!}
                     {!! Form::button('<i class="fa fa-trash"></i>', array(
                                     'type' => 'submit',
@@ -133,9 +146,89 @@
         </div>
     </section>
 </div>
+
+<div class="modal fade" id="restockmodal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            {!! Form::open(['url' => 'product/restock', 'method' => 'POST']) !!}
+            <input type="hidden" name="pro_id" id="restock-pro-id" value=""/>
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span></button>
+                <h4 class="modal-title">Restock Product</h4>
+            </div>
+            <div class="modal-body">
+                <h4 id="restock-name"></h4>
+                <p><strong>SKU:</strong> <span id="restock-sku"></span></p>
+                <p><strong>Current Quantity:</strong> <span id="restock-current" style="font-size: 24px; font-weight: bold; margin-left: 5px;"></span></p>
+                <div class="form-group">
+                    <label for="restock-qty">Add Quantity</label>
+                    <input type="number" min="1" step="1" name="added_qty" id="restock-qty" class="form-control" placeholder="0" required/>
+                </div>
+                <div class="form-group">
+                    <label for="restock-expiry">Expiry Date</label>
+                    <input type="date" name="expiry_date" id="restock-expiry" class="form-control"/>
+                    <small class="text-muted">Leave blank if product has no expiry</small>
+                </div>
+                <div class="form-group">
+                    <label for="restock-batch">Batch Code (optional)</label>
+                    <input type="text" name="batch_code" id="restock-batch" maxlength="50" class="form-control" placeholder="Enter unique batch code or leave blank to auto-generate"/>
+                </div>
+                <div class="form-group">
+                    <label for="restock-note">Batch Note (optional)</label>
+                    <input type="text" name="batch_note" id="restock-note" maxlength="255" class="form-control" placeholder="e.g. Supplier lot #, delivery ref"/>
+                </div>
+                <h5><strong>Existing Batches (FEFO Order)</strong></h5>
+                <table class="table table-condensed" id="restock-batches">
+                    <thead>
+                        <tr><th>Batch</th><th>Qty</th><th>Original</th><th>Expiry</th><th>Mfg Date</th><th>Status</th><th>Received</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger">Restock</button>
+            </div>
+            {!! Form::close() !!}
+        </div>
+    </div>
+</div>
 @endsection
 @section('footer_script')
 <script>
+    $('#expiryModal').modal('show');
+
+    $(".btn-restock").on("click", function(){
+        var id = $(this).data('id');
+        $('#restock-pro-id').val(id);
+        $('#restock-qty, #restock-expiry, #restock-batch, #restock-note').val('');
+        $('#restock-batches tbody').html('<tr><td colspan="7">Loading...</td></tr>');
+        $('#restockmodal').modal('show');
+
+        $.getJSON('{{ url("product/restock") }}/' + id, function(data){
+            $('#restock-name').text(data.name);
+            $('#restock-sku').text(data.sku);
+            $('#restock-current').text(data.current_qty);
+
+            var labels = {'Good': 'label-success', 'Expiring Soon': 'label-warning', 'Expired': 'label-danger'};
+            var $tbody = $('#restock-batches tbody').empty();
+            if (!data.batches.length) {
+                $tbody.html('<tr><td colspan="7" class="text-muted">No batches yet</td></tr>');
+            }
+            $.each(data.batches, function(i, b){
+                var $tr = $('<tr/>');
+                $.each([b.batch_code, b.qty, b.original_qty, b.expiry_date || '—', b.mfg_date || '—'], function(j, v){
+                    $tr.append($('<td/>').text(v));
+                });
+                $tr.append($('<td/>').append($('<span class="label"/>').addClass(labels[b.status]).text(b.status)));
+                $tr.append($('<td/>').text(b.received_date));
+                $tbody.append($tr);
+            });
+        }).fail(function(){
+            $('#restock-batches tbody').html('<tr><td colspan="7" class="text-danger">Unable to load product details.</td></tr>');
+        });
+    });
+
     $(".pop").on("click", function(e){
         e.preventDefault();
         $('#imagepreview').attr('src', $('.imageresource', this).attr('src')); // here asign the image to the modal when the user click the enlarge link
@@ -164,7 +257,11 @@
         height: 75px;
     }
     th.actions{
-        width: 120px!important;
+        width: 170px!important;
+        white-space: nowrap;
+    }
+    td.actions-cell{
+        white-space: nowrap;
     }
 </style>
 @endsection

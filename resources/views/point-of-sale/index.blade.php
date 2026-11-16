@@ -23,6 +23,7 @@
         <p>{{ $message }}</p>
     </div>
     @endif
+    @include('product._expiry-notice')
     <!-- Main content -->
     <section class="search-container">
         
