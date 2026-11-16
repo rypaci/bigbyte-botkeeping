@@ -145,6 +145,8 @@ Route::group(['middlewareGroups'=>['web', 'auth']], function() {
     Route::get('product/details/detailsdestroy/{id}', ['as' => 'product.get.detailsdestroy', 'uses' => 'ProductController@detailsDestroy']);
     Route::get('product/details/add-stock/{id}', 'ProductController@addStock');
     Route::get('product/details/save-stock', 'ProductController@saveStock');
+    Route::get('product/restock/{id}', 'ProductController@restockInfo'); // Ajax purpose only
+    Route::post('product/restock', 'ProductController@restock');
     Route::get('product/details/{id}', 'ProductController@productDetails');
     Route::post('product/details', 'ProductController@updateQty');
     Route::resource('product', 'ProductController');

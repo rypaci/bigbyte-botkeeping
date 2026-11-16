@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Product;
 use App\Vendor;
 use App\Inventory;
+use App\ProductBatch;
 use App\AllImages;
 use DateTime;
 use DB;
@@ -217,6 +218,67 @@ class ProductController extends Controller
         return view('product.addstock', compact('product_ID'));
     }
 
+    public function restockInfo($id){
+
+        $product = Product::findOrFail($id);
+        $stock = ProductBatch::stockFor($id);
+
+        return response()->json([
+            'id' => $product->id,
+            'name' => $product->name,
+            'sku' => $product->barcode,
+            'current_qty' => $stock['current_qty'],
+            'batches' => $stock['batches'],
+        ]);
+    }
+
+    public function restock(Request $request){
+
+        $this->validate($request, [
+            'pro_id' => 'required|exists:products,id',
+            'added_qty' => 'required|integer|min:1',
+            'expiry_date' => 'date',
+            'batch_code' => 'max:50',
+            'batch_note' => 'max:255',
+        ]);
+
+        $proId = $request->pro_id;
+        $batchCode = trim($request->batch_code);
+
+        if($batchCode !== '' && ProductBatch::where('product_id', $proId)->where('batch_code', $batchCode)->exists()){
+            return redirect()->back()->withInput()
+                ->withErrors(['batch_code' => 'Batch code "'.$batchCode.'" already exists for this product.']);
+        }
+
+        $currDate = date('Y-m-d');
+
+        DB::transaction(function() use ($request, $proId, $batchCode, $currDate){
+
+            $inventory = new Inventory();
+            $inventory->pro_id = $proId;
+            $inventory->added_qty = $request->added_qty;
+            $inventory->date = $currDate;
+            $inventory->save();
+
+            $batch = ProductBatch::create([
+                'product_id' => $proId,
+                'inventory_id' => $inventory->id,
+                'batch_code' => $batchCode !== '' ? $batchCode : 'pending',
+                'original_qty' => $request->added_qty,
+                'expiry_date' => $request->expiry_date ?: null,
+                'received_date' => $currDate,
+                'note' => $request->batch_note ?: null,
+            ]);
+
+            if($batchCode === ''){
+                $batch->batch_code = 'B-'.str_pad($batch->id, 3, '0', STR_PAD_LEFT);
+                $batch->save();
+            }
+        });
+
+        return redirect()->back()->with('success','Product is successfully restocked');
+    }
+
     public function saveStock(Request $request){
 
         $date = $request->date;
@@ -244,6 +306,7 @@ class ProductController extends Controller
                         'added_qty' => $rowdata['added_qty']
                     )
                 );
+            ProductBatch::where('inventory_id', $inv_id)->update(['original_qty' => $addedQty]);
             }
         }
         return redirect()->back()->with('success','Stock quantity is successfully updated');
@@ -331,6 +394,7 @@ class ProductController extends Controller
 
     public function detailsDestroy($id=null){
         Inventory::where('id', '=', $id)->delete();
+        ProductBatch::where('inventory_id', '=', $id)->delete();
         return redirect()->back()->with('success','Stock detail is successfully deleted');
     }
 
