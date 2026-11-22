@@ -38,6 +38,12 @@
  *        "Unknown named parameter $pos_expenses". Pass them positionally, as
  *        PHP 7 did.
  *
+ *   9.   Symfony's FileBag only recognises a $_FILES entry when its keys are
+ *        exactly error/name/size/tmp_name/type. PHP 8.1+ adds 'full_path', so
+ *        every file upload is mis-parsed as a nested array of ints and
+ *        Request::allFiles() dies with "UploadedFile::createFromBase() ...
+ *        int given" - even when no file was chosen. Drop 'full_path'.
+ *
  * Usage:  php php8-compat-patch.php  [--check]
  *   --check   report whether all patches are applied; exit 1 if any is missing.
  *             The deploy runs this so it fails loudly rather than shipping an
@@ -97,6 +103,11 @@ $patches = [
         'file'    => $fw . '/Routing/Controller.php',
         'search'  => 'return call_user_func_array([$this, $method], $parameters);',
         'replace' => 'return call_user_func_array([$this, $method], array_values($parameters));',
+    ],
+    [
+        'file'    => $root . '/vendor/symfony/http-foundation/FileBag.php',
+        'search'  => "            return \$data;\n        }\n\n        \$keys = array_keys(\$data);\n        sort(\$keys);\n\n        if (self::\$fileKeys != \$keys || !isset(\$data['name'])",
+        'replace' => "            return \$data;\n        }\n\n        // PHP 8.1+ adds a 'full_path' key to \$_FILES entries\n        unset(\$data['full_path']);\n\n        \$keys = array_keys(\$data);\n        sort(\$keys);\n\n        if (self::\$fileKeys != \$keys || !isset(\$data['name'])",
     ],
 ];
 
